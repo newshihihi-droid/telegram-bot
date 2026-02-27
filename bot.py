@@ -4,11 +4,12 @@ import os
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message
+from aiogram.types import Message, ChatPermissions
 from aiogram.filters import Command
 
 TOKEN = os.getenv("TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
+GROUP_ID = -1003369212869  # ← ВСТАВЬ СЮДА ID СВОЕЙ ГРУППЫ
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -16,9 +17,17 @@ dp = Dispatcher()
 warnings_db = {}
 
 
-# --- Проверка владельца ---
-def is_owner(message: Message):
-    return message.from_user.id == OWNER_ID
+# --- Проверка доступа ---
+def is_allowed(message: Message):
+    user_id = None
+
+    if message.from_user:
+        user_id = message.from_user.id
+
+    if message.sender_chat:
+        user_id = message.sender_chat.id
+
+    return user_id in [OWNER_ID, GROUP_ID]
 
 
 # --- Парсер времени ---
@@ -45,7 +54,7 @@ def parse_time(time_str):
 # --- MUTE ---
 @dp.message(Command("mute"))
 async def mute_user(message: Message):
-    if not is_owner(message):
+    if not is_allowed(message):
         return
 
     if not message.reply_to_message:
@@ -68,7 +77,7 @@ async def mute_user(message: Message):
     await bot.restrict_chat_member(
         chat_id=message.chat.id,
         user_id=user_id,
-        permissions={"can_send_messages": False},
+        permissions=ChatPermissions(can_send_messages=False),
         until_date=until_date
     )
 
@@ -78,7 +87,7 @@ async def mute_user(message: Message):
 # --- UNMUTE ---
 @dp.message(Command("unmute"))
 async def unmute_user(message: Message):
-    if not is_owner(message):
+    if not is_allowed(message):
         return
 
     if not message.reply_to_message:
@@ -90,12 +99,12 @@ async def unmute_user(message: Message):
     await bot.restrict_chat_member(
         chat_id=message.chat.id,
         user_id=user_id,
-        permissions={
-            "can_send_messages": True,
-            "can_send_media_messages": True,
-            "can_send_other_messages": True,
-            "can_add_web_page_previews": True
-        }
+        permissions=ChatPermissions(
+            can_send_messages=True,
+            can_send_media_messages=True,
+            can_send_other_messages=True,
+            can_add_web_page_previews=True
+        )
     )
 
     await message.answer("✅ Мут снят")
@@ -104,7 +113,7 @@ async def unmute_user(message: Message):
 # --- WARN ---
 @dp.message(Command("warn"))
 async def warn_user(message: Message):
-    if not is_owner(message):
+    if not is_allowed(message):
         return
 
     if not message.reply_to_message:
@@ -123,7 +132,7 @@ async def warn_user(message: Message):
         await bot.restrict_chat_member(
             chat_id=message.chat.id,
             user_id=user_id,
-            permissions={"can_send_messages": False},
+            permissions=ChatPermissions(can_send_messages=False),
             until_date=until_date
         )
 
@@ -138,4 +147,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
