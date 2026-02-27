@@ -63,7 +63,7 @@ def parse_time(time_str):
 
 
 # ---------------- МОДЕРАЦИЯ ----------------
-@dp.message(Command(["mute", "unmute", "warn", "ban", "permaban"]))
+@dp.message(Command("mute", "unmute", "warn", "ban", "permaban"))
 async def moderation_commands(message: Message):
 
     if not is_admin(message):
@@ -242,4 +242,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
