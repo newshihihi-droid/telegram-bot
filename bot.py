@@ -13,8 +13,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import ChatPermissions
 from aiogram.filters import Command
 
-# ---------------- LOGGING ----------------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 
 # ---------------- CONFIG ----------------
 TOKEN = os.getenv("TOKEN")
