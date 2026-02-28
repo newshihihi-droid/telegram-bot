@@ -164,6 +164,19 @@ async def moderation(message: types.Message):
         await bot.ban_chat_member(message.chat.id, user_id)
         await message.answer("⛔ Перманентный бан")
 
+# ---------------- RULES / HELP ----------------
+@dp.message(Command("rules"))
+async def rules_cmd(message: types.Message):
+    await message.answer(rules_text)
+
+@dp.message(Command("help"))
+async def help_cmd(message: types.Message):
+    await message.answer(
+        "/rules — правила чата\n"
+        "/rep — твоя репутация\n"
+        "Модерация (только для админа): /mute /unmute /warn /ban /permaban"
+    )
+
 # ---------------- REP ----------------
 @dp.message(Command("rep"))
 async def rep(message: types.Message):
@@ -174,7 +187,7 @@ async def rep(message: types.Message):
             return await message.answer("⏳ КД 10 секунд.")
     rep_cooldown[user_id]=now
     rep = reputation_db.get(user_id,0)
-    await message.answer(f"⭐ Твоя репутация: {rep}")
+    await message.answer(f"⭐ Репутация {message.from_user.first_name}: {rep}")
 
 # ---------------- UNIVERSAL HANDLER ----------------
 @dp.message()
@@ -204,17 +217,23 @@ async def universal(message: types.Message):
     # --- REP CHANGE ---
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
-        if text == "+": reputation_db[target_id] = reputation_db.get(target_id,0)+1; await message.answer("👍 +1 реп")
-        elif text == "-": reputation_db[target_id] = reputation_db.get(target_id,0)-1; await message.answer("👎 -1 реп")
-        elif re.match(r"^[+-]\d+$", text) and is_admin(message):
-            val = int(text)
-            reputation_db[target_id] = reputation_db.get(target_id,0)+val
-            await message.answer(f"⭐ Репутация изменена на {val}")
-        save_data()
+        # запрещаем менять себе репутацию
+        if target_id != user_id:
+            if text == "+": 
+                reputation_db[target_id] = reputation_db.get(target_id,0)+1
+                await message.answer(f"👍 +1 реп {message.reply_to_message.from_user.first_name}")
+            elif text == "-": 
+                reputation_db[target_id] = reputation_db.get(target_id,0)-1
+                await message.answer(f"👎 -1 реп {message.reply_to_message.from_user.first_name}")
+            elif re.match(r"^[+-]\d+$", text) and is_admin(message):
+                val = int(text)
+                reputation_db[target_id] = reputation_db.get(target_id,0)+val
+                await message.answer(f"⭐ Репутация {message.reply_to_message.from_user.first_name} изменена на {val}")
+            save_data()
 
-        # --- INTERACTIVE ---
-        if text.lower() in actions:
-            await message.answer(f"{message.from_user.first_name} {actions[text.lower()]} {message.reply_to_message.from_user.first_name}")
+            # --- INTERACTIVE ---
+            if text.lower() in actions:
+                await message.answer(f"{message.from_user.first_name} {actions[text.lower()]} {message.reply_to_message.from_user.first_name}")
 
     # --- WELCOME / BYE ---
     if message.new_chat_members:
