@@ -8,15 +8,12 @@ import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message, ChatPermissions
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ChatPermissions
 from aiogram.filters import Command
 
 # ---------------- LOGGING ----------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # ---------------- CONFIG ----------------
 TOKEN = os.getenv("TOKEN")
@@ -38,12 +35,7 @@ message_tracker = defaultdict(list)
 SPAM_LIMIT = 5
 SPAM_TIME = 4
 
-bad_words = {
-    "дурак": "солнышко",
-    "идиот": "гений",
-    "лох": "чемпион",
-    "тупой": "умничка"
-}
+bad_words = {"дурак": "солнышко", "идиот": "гений", "лох": "чемпион", "тупой": "умничка"}
 
 welcome_list = [
     "🔥 Добро пожаловать, {name}!",
@@ -52,10 +44,7 @@ welcome_list = [
     "⚡ {name} теперь с нами!",
     "🌟 Встречаем {name}",
     "💎 {name} в чате!",
-    "🚀 {name} ворвался!",
-    "🛡 Рад видеть, {name}",
-    "👑 {name} присоединился",
-    "✨ Добро пожаловать {name}"
+
 ]
 
 bye_list = [
@@ -63,15 +52,10 @@ bye_list = [
     "👋 {name} покинул чат",
     "🚪 {name} вышел",
     "💨 {name} исчез",
-    "⚰ {name} нас покинул",
-    "📤 {name} вышел",
-    "❌ {name} больше не с нами",
-    "🥀 {name} ушел",
-    "🌫 {name} растворился",
-    "🛫 {name} улетел"
+    
 ]
 
-rules = "\n\n📜 Правила:\n1. Без спама\n2. Без оскорблений\n3. Уважение"
+rules = "\n📜 Правила:\n1. Без спама\n2. Без оскорблений\n3. Уважение"
 
 actions = {
     "пожать": "🤝 {a} жмет руку {b}",
@@ -83,13 +67,13 @@ actions = {
 }
 
 # ---------------- HELPERS ----------------
-def is_admin(message: Message):
+def is_admin(message: types.Message):
     return message.from_user.id == OWNER_ID and message.chat.id == GROUP_ID
 
 def save_data():
-    data = {"warnings": warnings_db, "reputation": reputation_db}
+
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump({"warnings": warnings_db, "reputation": reputation_db}, f, ensure_ascii=False, indent=2)
 
 def load_data():
     global warnings_db, reputation_db
@@ -97,29 +81,24 @@ def load_data():
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             content = f.read().strip()
             if not content:
-                warnings_db = {}
-                reputation_db = {}
+                warnings_db, reputation_db = {}, {}
                 return
             data = json.loads(content)
             warnings_db = {int(k): v for k, v in data.get("warnings", {}).items()}
             reputation_db = {int(k): v for k, v in data.get("reputation", {}).items()}
     except FileNotFoundError:
-        warnings_db = {}
-        reputation_db = {}
+        warnings_db, reputation_db = {}, {}
 
-def parse_time(time_str):
-    match = re.match(r"(\d+)([smhd])", time_str)
-    if not match: return None
-    value, unit = match.groups()
-    value = int(value)
-    if unit == "s": return timedelta(seconds=value)
-    if unit == "m": return timedelta(minutes=value)
-    if unit == "h": return timedelta(hours=value)
-    if unit == "d": return timedelta(days=value)
+def parse_time(s):
+    m = re.match(r"(\d+)([smhd])", s)
+    if not m: return None
+    val, unit = int(m.group(1)), m.group(2)
+    return {"s": timedelta(seconds=val), "m": timedelta(minutes=val),
+            "h": timedelta(hours=val), "d": timedelta(days=val)}.get(unit)
 
-# ---------------- ADMIN COMMANDS ----------------
+# ---------------- COMMANDS ----------------
 @dp.message(Command("mute"))
-async def mute_cmd(message: Message):
+async def mute_cmd(message: types.Message):
     if not is_admin(message) or not message.reply_to_message: return
     args = message.text.split()
     if len(args)<2: return await message.answer("Пример: /mute 10m")
@@ -131,14 +110,14 @@ async def mute_cmd(message: Message):
     await message.answer("🔇 Мут выдан")
 
 @dp.message(Command("unmute"))
-async def unmute_cmd(message: Message):
+async def unmute_cmd(message: types.Message):
     if not is_admin(message) or not message.reply_to_message: return
     await bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id,
                                    ChatPermissions(can_send_messages=True))
     await message.answer("✅ Мут снят")
 
 @dp.message(Command("ban"))
-async def ban_cmd(message: Message):
+async def ban_cmd(message: types.Message):
     if not is_admin(message) or not message.reply_to_message: return
     args = message.text.split()
     if len(args)<2: return await message.answer("Пример: /ban 1d")
@@ -149,13 +128,13 @@ async def ban_cmd(message: Message):
     await message.answer("🚫 Бан выдан")
 
 @dp.message(Command("permaban"))
-async def permaban_cmd(message: Message):
+async def permaban_cmd(message: types.Message):
     if not is_admin(message) or not message.reply_to_message: return
     await bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
     await message.answer("💀 Перманентный бан")
 
 @dp.message(Command("warn"))
-async def warn_cmd(message: Message):
+async def warn_cmd(message: types.Message):
     if not is_admin(message) or not message.reply_to_message: return
     user = message.reply_to_message.from_user
     warnings_db[user.id] = warnings_db.get(user.id,0)+1
@@ -179,7 +158,7 @@ async def warn_cmd(message: Message):
 
 # ---------------- MAIN HANDLER ----------------
 @dp.message()
-async def main_handler(message: Message):
+async def main_handler(message: types.Message):
     if not message.text: return
     text = message.text.strip()
     user_id = message.from_user.id
@@ -228,7 +207,7 @@ async def main_handler(message: Message):
 
 # ---------------- REP VIEW ----------------
 @dp.message(Command("rep"))
-async def rep_view(message: Message):
+async def rep_view(message: types.Message):
     user = message.reply_to_message.from_user if message.reply_to_message else message.from_user
     uid = message.from_user.id
     if uid != OWNER_ID:
@@ -241,7 +220,7 @@ async def rep_view(message: Message):
 
 # ---------------- WELCOME / BYE ----------------
 @dp.message()
-async def member_events(message: Message):
+async def member_events(message: types.Message):
     if message.new_chat_members:
         for m in message.new_chat_members:
             text = random.choice(welcome_list).format(name=m.full_name)
@@ -252,7 +231,7 @@ async def member_events(message: Message):
 
 # ---------------- HELP ----------------
 @dp.message(Command("help"))
-async def help_cmd(message: Message):
+async def help_cmd(message: types.Message):
     text = "📜 Команды:\n\n"
     if message.from_user.id==OWNER_ID:
         text+="👑 Админ:\n/mute 10m\n/unmute\n/ban 1d\n/permaban\n/warn\n+1 / -1 на репутацию\n\n"
