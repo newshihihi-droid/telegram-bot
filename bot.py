@@ -1,7 +1,10 @@
 import asyncio
-import re
 import os
+import re
+import random
+import time
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, ChatPermissions
@@ -9,47 +12,40 @@ from aiogram.filters import Command
 
 TOKEN = os.getenv("TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
-GROUP_ID = -1001234567890  # <-- ВСТАВЬ ID ГРУППЫ
+GROUP_ID = int(os.getenv("GROUP_ID"))
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 warnings_db = {}
 reputation_db = {}
-rep_cooldown = {}
+rep_view_cooldown = {}
+rep_change_cooldown = {}
+message_tracker = defaultdict(list)
 
-rules_text = """
-📜 Правила чата:
+SPAM_LIMIT = 5
+SPAM_TIME = 4
 
-1. Без спама
-2. Без оскорблений
-3. Без рекламы
-4. Уважайте друг друга
-"""
+bad_words = {
+    "дурак": "солнышко",
+    "идиот": "гений",
+    "лох": "чемпион",
+    "тупой": "умничка"
+}
 
+# ================== ВСПОМОГАТЕЛЬНОЕ ==================
 
-# ---------------- ДОСТУП ----------------
 def is_admin(message: Message):
-    user_id = None
+    return message.from_user.id == OWNER_ID and message.chat.id == GROUP_ID
 
-    if message.from_user:
-        user_id = message.from_user.id
-
-    if message.sender_chat:
-        user_id = message.sender_chat.id
-
-    return user_id in [OWNER_ID, GROUP_ID]
-
-
-# ---------------- ПАРСЕР ВРЕМЕНИ ----------------
 def parse_time(time_str):
     match = re.match(r"(\d+)([smhd])", time_str)
     if not match:
         return None
-
+    
     value, unit = match.groups()
     value = int(value)
-
+    
     if unit == "s":
         return timedelta(seconds=value)
     if unit == "m":
@@ -59,183 +55,242 @@ def parse_time(time_str):
     if unit == "d":
         return timedelta(days=value)
 
-    return None
+# ================== HELP ==================
 
+@dp.message(Command("help"))
+async def help_cmd(message: Message):
+    text = "📜 Команды:\n\n"
 
-# ---------------- МОДЕРАЦИЯ ----------------
-@dp.message(Command("mute", "unmute", "warn", "ban", "permaban"))
-async def moderation_commands(message: Message):
+    if message.from_user.id == OWNER_ID:
+        text += (
+            "👑 Админ:\n"
+            "/mute 10m\n"
+            "/unmute\n"
+            "/ban 1d\n"
+            "/permaban\n"
+            "/warn\n"
+            "/warn 2-12 (2 месяца бан)\n"
+            "+100 / -50\n\n"
+        )
 
+    text += (
+        "🌟 Общие:\n"
+        "/rep\n\n"
+        "🎭 Интерактив (ответом на сообщение):\n"
+        "пожать\nобнять\nпоцеловать\nрука\nударить\nнакричать\n"
+    )
+
+    await message.answer(text)
+
+# ================== WARN ==================
+
+@dp.message(Command("warn"))
+async def warn_user(message: Message):
     if not is_admin(message):
         return
-
-    cmd = message.text.split()[0].replace("/", "")
-
+    
     if not message.reply_to_message:
-        await message.answer("Ответь на сообщение пользователя.")
+        return await message.answer("Ответь на сообщение.")
+
+    user = message.reply_to_message.from_user
+    args = message.text.split()
+
+    if len(args) > 1 and "-" in args[1]:
+        months = int(args[1].split("-")[0])
+        until = datetime.now() + timedelta(days=30 * months)
+        await bot.ban_chat_member(message.chat.id, user.id, until_date=until)
+        return await message.answer(f"🚫 Бан на {months} мес.")
+
+    warnings_db[user.id] = warnings_db.get(user.id, 0) + 1
+    count = warnings_db[user.id]
+
+    if count == 1:
+        until = datetime.now() + timedelta(minutes=15)
+        await bot.restrict_chat_member(
+            message.chat.id,
+            user.id,
+            ChatPermissions(can_send_messages=False),
+            until_date=until
+        )
+        await message.answer("⚠ 1 предупреждение → мут 15 мин")
+
+    elif count == 2:
+        until = datetime.now() + timedelta(hours=2)
+        await bot.restrict_chat_member(
+            message.chat.id,
+            user.id,
+            ChatPermissions(can_send_messages=False),
+            until_date=until
+        )
+        await message.answer("⚠ 2 предупреждение → мут 2 часа")
+
+    elif count >= 3:
+        until = datetime.now() + timedelta(days=30)
+        await bot.ban_chat_member(message.chat.id, user.id, until_date=until)
+        warnings_db[user.id] = 0
+        await message.answer("🚫 3 предупреждение → бан 30 дней")
+
+# ================== REP VIEW ==================
+
+@dp.message(Command("rep"))
+async def rep_view(message: Message):
+    user = message.reply_to_message.from_user if message.reply_to_message else message.from_user
+
+    if message.from_user.id != OWNER_ID:
+        now = time.time()
+        last = rep_view_cooldown.get(message.from_user.id, 0)
+        if now - last < 60:
+            return await message.answer("⏳ КД 1 минута.")
+        rep_view_cooldown[message.from_user.id] = now
+
+    rep = reputation_db.get(user.id, 0)
+    await message.answer(f"⭐ Репутация {user.full_name}: {rep}")
+
+# ================== REP CHANGE ==================
+
+@dp.message()
+async def rep_change(message: Message):
+    if not message.reply_to_message:
+        return
+    if not message.text:
         return
 
-    user_id = message.reply_to_message.from_user.id
+    text = message.text.strip()
 
-    # MUTE
-    if cmd == "mute":
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer("Пример: /mute 20m")
-            return
+    if re.fullmatch(r"[+-]\d+", text):
+        target = message.reply_to_message.from_user
 
-        delta = parse_time(args[1])
-        if not delta:
-            await message.answer("Формат: 10s / 20m / 3h / 2d")
-            return
+        if target.id == message.from_user.id:
+            return await message.answer("❌ Нельзя себе менять репутацию.")
 
-        await bot.restrict_chat_member(
-            chat_id=message.chat.id,
-            user_id=user_id,
-            permissions=ChatPermissions(can_send_messages=False),
-            until_date=datetime.now() + delta
+        value = int(text)
+
+        if message.from_user.id != OWNER_ID:
+            now = time.time()
+            last = rep_change_cooldown.get(message.from_user.id, 0)
+            if now - last < 10:
+                return await message.answer("⏳ КД 10 секунд.")
+            rep_change_cooldown[message.from_user.id] = now
+
+            if abs(value) > 1:
+                return await message.answer("Можно только +1 или -1.")
+
+        reputation_db[target.id] = reputation_db.get(target.id, 0) + value
+
+        await message.answer(
+            f"⭐ Репутация {target.full_name} теперь {reputation_db[target.id]}"
         )
 
-        await message.answer(f"🔇 Мут на {args[1]}")
+# ================== ИНТЕРАКТИВ ==================
 
-    # UNMUTE
-    elif cmd == "unmute":
-        await bot.restrict_chat_member(
-            chat_id=message.chat.id,
-            user_id=user_id,
-            permissions=ChatPermissions(can_send_messages=True)
-        )
-        await message.answer("✅ Мут снят")
+actions = {
+    "пожать": "🤝 {a} жмет руку {b}",
+    "обнять": "🤗 {a} обнимает {b}",
+    "поцеловать": "💋 {a} целует {b}",
+    "рука": "🫴 {a} подает руку помощи {b}",
+    "ударить": "👊 {a} ударил {b}",
+    "накричать": "😡 {a} накричал на {b}",
+}
 
-    # WARN
-    elif cmd == "warn":
-        warnings_db[user_id] = warnings_db.get(user_id, 0) + 1
-        count = warnings_db[user_id]
-
-        await message.answer(f"⚠ Варн. Всего: {count}")
-
-        if count >= 3:
-            await bot.restrict_chat_member(
-                chat_id=message.chat.id,
-                user_id=user_id,
-                permissions=ChatPermissions(can_send_messages=False),
-                until_date=datetime.now() + timedelta(minutes=30)
-            )
-            warnings_db[user_id] = 0
-            await message.answer("🚫 3 варна → мут 30 минут")
-
-    # BAN
-    elif cmd == "ban":
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer("Пример: /ban 3d")
-            return
-
-        delta = parse_time(args[1])
-        if not delta:
-            await message.answer("Формат: 10m / 3h / 2d")
-            return
-
-        await bot.ban_chat_member(
-            chat_id=message.chat.id,
-            user_id=user_id,
-            until_date=datetime.now() + delta
-        )
-        await message.answer(f"🚫 Бан на {args[1]}")
-
-    # PERMABAN
-    elif cmd == "permaban":
-        await bot.ban_chat_member(
-            chat_id=message.chat.id,
-            user_id=user_id
-        )
-        await message.answer("⛔ Перманентный бан")
-
-
-# ---------------- RULES ----------------
-@dp.message(Command("rules"))
-async def rules(message: Message):
-    await message.answer(rules_text)
-
-
-# ---------------- REP ----------------
-@dp.message(Command("rep"))
-async def check_rep(message: Message):
-    user_id = message.from_user.id
-    now = datetime.now()
-
-    if user_id in rep_cooldown:
-        if now - rep_cooldown[user_id] < timedelta(minutes=10):
-            await message.answer("⏳ КД 10 минут.")
-            return
-
-    rep_cooldown[user_id] = now
-    rep = reputation_db.get(user_id, 0)
-
-    await message.answer(f"⭐ Твоя репутация: {rep}")
-
-
-# ---------------- УНИВЕРСАЛЬНЫЙ ОБРАБОТЧИК ----------------
 @dp.message()
-async def universal_handler(message: Message):
+async def interactive(message: Message):
+    if not message.reply_to_message:
+        return
+    if message.text and message.text.lower() in actions:
+        a = message.from_user.full_name
+        b = message.reply_to_message.from_user.full_name
+        await message.answer(actions[message.text.lower()].format(a=a, b=b))
 
-    # приветствие
+# ================== АНТИСПАМ ==================
+
+@dp.message()
+async def anti_spam(message: Message):
+    if message.from_user.id == OWNER_ID:
+        return
+
+    user_id = message.from_user.id
+    now = time.time()
+
+    message_tracker[user_id] = [
+        t for t in message_tracker[user_id] if now - t < SPAM_TIME
+    ]
+    message_tracker[user_id].append(now)
+
+    if len(message_tracker[user_id]) >= SPAM_LIMIT:
+        until = datetime.now() + timedelta(minutes=5)
+        await bot.restrict_chat_member(
+            message.chat.id,
+            user_id,
+            ChatPermissions(can_send_messages=False),
+            until_date=until
+        )
+        message_tracker[user_id].clear()
+        await message.answer("🚫 Спам → мут 5 минут")
+
+# ================== МАТ-ФИЛЬТР ==================
+
+@dp.message()
+async def bad_word_filter(message: Message):
+    if message.from_user.id == OWNER_ID:
+        return
+    if not message.text:
+        return
+
+    replaced = message.text
+
+    for bad, good in bad_words.items():
+        pattern = re.compile(bad, re.IGNORECASE)
+        replaced = pattern.sub(good, replaced)
+
+    if replaced != message.text:
+        await message.delete()
+        await message.answer(
+            f"✏ {message.from_user.full_name} имел в виду:\n{replaced}"
+        )
+
+# ================== WELCOME / BYE ==================
+
+welcome_list = [
+    "🔥 Добро пожаловать, {name}!",
+    "👋 {name} залетел!",
+    "🎉 Новый участник — {name}",
+    "⚡ {name} теперь с нами!",
+    "🌟 Встречаем {name}",
+    "💎 {name} в чате!",
+    "🚀 {name} ворвался!",
+    "🛡 Рад видеть, {name}",
+    "👑 {name} присоединился",
+    "✨ Добро пожаловать {name}"
+]
+
+bye_list = [
+    "😢 {name} ушел...",
+    "👋 {name} покинул чат",
+    "🚪 {name} вышел",
+    "💨 {name} исчез",
+    "⚰ {name} нас покинул",
+    "📤 {name} вышел",
+    "❌ {name} больше не с нами",
+    "🥀 {name} ушел",
+    "🌫 {name} растворился",
+    "🛫 {name} улетел"
+]
+
+rules = "\n\n📜 Правила:\n1. Без спама\n2. Без оскорблений\n3. Уважение"
+
+@dp.message()
+async def member_events(message: Message):
     if message.new_chat_members:
-        for user in message.new_chat_members:
-            await message.answer(f"👋 Добро пожаловать, {user.first_name}!")
+        for m in message.new_chat_members:
+            text = random.choice(welcome_list).format(name=m.full_name)
+            await message.answer(text + rules)
 
     if message.left_chat_member:
-        user = message.left_chat_member
-        await message.answer(f"😢 {user.first_name} покинул чат.")
+        text = random.choice(bye_list).format(name=message.left_chat_member.full_name)
+        await message.answer(text)
 
-    # если есть reply
-    if message.reply_to_message:
+# ================== START ==================
 
-        target_id = message.reply_to_message.from_user.id
-
-        # --- РЕПУТАЦИЯ ---
-        if message.text:
-
-            # Админ может выдавать любое число
-            match = re.match(r"^([+-])(\d+)$", message.text)
-            if match and is_admin(message):
-                sign, number = match.groups()
-                number = int(number)
-
-                if sign == "+":
-                    reputation_db[target_id] = reputation_db.get(target_id, 0) + number
-                else:
-                    reputation_db[target_id] = reputation_db.get(target_id, 0) - number
-
-                await message.answer(f"⭐ Репутация изменена на {number}")
-                return
-
-            # Обычные пользователи только + или -
-            if message.text == "+":
-                reputation_db[target_id] = reputation_db.get(target_id, 0) + 1
-                await message.answer("👍 +1 репутация")
-
-            elif message.text == "-":
-                reputation_db[target_id] = reputation_db.get(target_id, 0) - 1
-                await message.answer("👎 -1 репутация")
-
-        # --- ИНТЕРАКТИВ ---
-        actions = {
-            "пожать": "🤝 жмет руку",
-            "обнять": "🤗 обнимает",
-            "поцеловать": "💋 целует",
-            "рука": "🫱 подает руку помощи",
-            "ударить": "👊 бьет",
-            "накричать": "😡 кричит на"
-        }
-
-        if message.text and message.text.lower() in actions:
-            sender = message.from_user.first_name
-            target = message.reply_to_message.from_user.first_name
-            await message.answer(f"{sender} {actions[message.text.lower()]} {target}")
-
-
-# ---------------- START ----------------
 async def main():
     await dp.start_polling(bot)
 
