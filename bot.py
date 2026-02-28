@@ -25,10 +25,9 @@ GROUP_ID = int(os.getenv("GROUP_ID"))
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ================= DATA =================
 DATA_FILE = "bot_data.json"
 
-
+# ================= DATA =================
 warnings_db = {}
 reputation_db = {}
 rep_view_cooldown = {}
@@ -45,35 +44,6 @@ bad_words = {
     "тупой": "умничка"
 }
 
-elcome_list = [
-    "🔥 Добро пожаловать, {name}!",
-    "👋 {name} залетел!",
-    "🎉 Новый участник — {name}",
-    "⚡ {name} теперь с нами!",
-    "🌟 Встречаем {name}",
-    "💎 {name} в чате!",
-    "🚀 {name} ворвался!",
-    "🛡 Рад видеть, {name}",
-    "👑 {name} присоединился",
-    "✨ Добро пожаловать {name}"
-]
-
-bye_list = [
-    "😢 {name} ушел...",
-    "👋 {name} покинул чат",
-    "🚪 {name} вышел",
-    "💨 {name} исчез",
-    "⚰ {name} нас покинул",
-    "📤 {name} вышел",
-    "❌ {name} больше не с нами",
-    "🥀 {name} ушел",
-    "🌫 {name} растворился",
-    "🛫 {name} улетел"
-]
-
-rules = "\n\n📜 Правила:\n1. Без спама\n2. Без оскорблений\n3. Уважение"
-
-
 actions = {
     "пожать": "🤝 {a} жмет руку {b}",
     "обнять": "🤗 {a} обнимает {b}",
@@ -83,12 +53,26 @@ actions = {
     "накричать": "😡 {a} накричал на {b}",
 }
 
+welcome_list = [
+    "🔥 Добро пожаловать, {name}!", "👋 {name} залетел!",
+    "🎉 Новый участник — {name}", "⚡ {name} теперь с нами!",
+    "🌟 Встречаем {name}", "💎 {name} в чате!", "🚀 {name} ворвался!",
+    "🛡 Рад видеть, {name}", "👑 {name} присоединился", "✨ Добро пожаловать {name}"
+]
+
+bye_list = [
+    "😢 {name} ушел...", "👋 {name} покинул чат", "🚪 {name} вышел",
+    "💨 {name} исчез", "⚰ {name} нас покинул", "📤 {name} вышел",
+    "❌ {name} больше не с нами", "🥀 {name} ушел", "🌫 {name} растворился", "🛫 {name} улетел"
+]
+
+rules = "\n\n📜 Правила:\n1. Без спама\n2. Без оскорблений\n3. Уважение"
+
 # ================= HELPERS =================
 def is_admin(message: Message):
     return message.from_user.id == OWNER_ID and message.chat.id == GROUP_ID
 
 def save_data():
-
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump({
             "warnings": warnings_db,
@@ -175,13 +159,11 @@ async def permaban_cmd(message: Message):
     )
     await message.answer("💀 Перманентный бан")
 
-
 @dp.message(Command("warn"))
 async def warn_cmd(message: Message):
     if not is_admin(message) or not message.reply_to_message:
         return
     user = message.reply_to_message.from_user
-    
     warnings_db[user.id] = warnings_db.get(user.id,0)+1
     count = warnings_db[user.id]
     if count == 1:
@@ -300,5 +282,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__=="__main__":
-    
     asyncio.run(main())
