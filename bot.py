@@ -107,8 +107,13 @@ def save_data():
         json.dump({"warnings": warnings_db, "reputation": reputation_db}, f, ensure_ascii=False, indent=2)
 
 # ---------------- MODERATION ----------------
-@dp.message(Command(["mute", "unmute", "warn", "ban", "permaban"]))
+@dp.message(Command(commands=["mute"]))
+@dp.message(Command(commands=["unmute"]))
+@dp.message(Command(commands=["warn"]))
+@dp.message(Command(commands=["ban"]))
+@dp.message(Command(commands=["permaban"]))
 async def moderation(message: types.Message):
+
     if not is_admin(message) or not message.reply_to_message:
         return await message.answer("Ответь на сообщение пользователя.")
 
