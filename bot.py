@@ -35,12 +35,12 @@ message_tracker = {}
 SPAM_LIMIT = 5
 SPAM_TIME = 4  # секунд
 
-bad_words = {
-    "дурак": "солнышко",
-    "идиот": "гений",
-    "лох": "чемпион",
-    "тупой": "умничка"
-}
+# bad_words = {
+#     "дурак": "солнышко",
+#     "идиот": "гений",
+#     "лох": "чемпион",
+#     "тупой": "умничка"
+# }
 
 rules_text = """
 📜 Правила чата:
@@ -208,11 +208,11 @@ async def universal(message: types.Message):
             return await message.answer("🚫 Спам → мут 5 минут")
 
     # --- BAD WORDS ---
-    for bad, good in bad_words.items():
-        if re.search(bad, text, re.IGNORECASE):
-            await message.delete()
-            await message.answer(f"✏ {message.from_user.first_name} имел в виду: {re.sub(bad, good, text, flags=re.IGNORECASE)}")
-            return
+    # for bad, good in bad_words.items():
+    #     if re.search(bad, text, re.IGNORECASE):
+    #         await message.delete()
+    #         await message.answer(f"✏ {message.from_user.first_name} имел в виду: {re.sub(bad, good, text, flags=re.IGNORECASE)}")
+    #         return
 
     # --- REP CHANGE ---
     if message.reply_to_message:
