@@ -76,6 +76,20 @@ bye_list = [
     "💨 {name} исчез",
 ]
 
+# ---------------- ФАКТЫ ARKNIGHTS: ENDFIELD ----------------
+endfield_facts = [
+    "Arknights: Endfield происходит на луне Talos-II газового гиганта.",
+    "Главный герой — Endministrator, пропавший 10 лет назад.",
+    "В игре есть механика строительства фабрик в стиле Factorio.",
+    "Можно погладить Burdenbeast раз в день — получишь Burdo-muck.",
+    "Некоторые операторы реагируют, если долго смотреть на их хвост.",
+    "Обезвоженный слизняк благодарит за воду подарком.",
+    "Yvon делает бомбы Tweety в честь своего агрессивного питомца.",
+    "Есть башенный режим как в оригинальном Arknights.",
+    "Laevatain — один из первых 6★ Striker-персонажей.",
+    "Endfield Industries — ключевая фракция в сюжете."
+]
+
 # ---------------- HELPERS ----------------
 def is_admin(message: types.Message):
     return message.from_user and message.from_user.id in [OWNER_ID]
@@ -119,6 +133,10 @@ def save_data():
             "messages": message_stats
         }, f, ensure_ascii=False, indent=2)
 
+def get_display_name(user: types.User) -> str:
+    if user.username:
+        return f"@{user.username} ({user.first_name})"
+    return user.first_name
 
 # ---------------- MODERATION ----------------
 @dp.message(Command(commands=["mute"]))
@@ -255,7 +273,8 @@ async def help_cmd(message: types.Message):
         "Основное:\n"
         "/rules — правила\n"
         "/rep — твоя репутация\n"
-        "/userinfo — информация о пользователе\n\n"
+        "/userinfo — информация о пользователе\n"
+        "/fakt_endfield — случайный факт Arknights: Endfield\n\n"
 
         "Топы:\n"
         "/toprep — топ репутации\n"
@@ -299,7 +318,7 @@ async def rep(message: types.Message):
     rep = reputation_db.get(user_id, 0)
 
     await message.answer(
-        f"⭐ Репутация {message.from_user.first_name}: {rep}"
+        f"⭐ Репутация {get_display_name(message.from_user)}: {rep}"
     )
 
 
@@ -323,7 +342,7 @@ async def userinfo(message: types.Message):
         messages = sum(message_stats[uid].values())
 
     text = (
-        f"👤 {user.first_name}\n"
+        f"👤 {get_display_name(user)}\n"
         f"🆔 ID: {uid}\n\n"
         f"⭐ Репутация: {rep}\n"
         f"⚠ Варны: {warns}\n"
@@ -340,21 +359,27 @@ async def toprep(message: types.Message):
     if not reputation_db:
         return await message.answer("Нет данных.")
 
+    # Только те, кто писал в группе
+    active_users = [uid for uid in reputation_db if uid in message_stats]
+
+    if not active_users:
+        return await message.answer("Нет активных пользователей с репутацией.")
+
     top = sorted(
-        reputation_db.items(),
+        [(uid, reputation_db[uid]) for uid in active_users],
         key=lambda x: x[1],
         reverse=True
     )[:10]
 
-    text = "🏆 Топ репутации\n\n"
+    text = "🏆 Топ репутации (только участники группы)\n\n"
 
     for i, (uid, rep) in enumerate(top, 1):
 
         try:
-            user = await bot.get_chat(uid)
-            name = user.first_name
+            member = await bot.get_chat_member(message.chat.id, uid)
+            name = get_display_name(member.user)
         except:
-            name = str(uid)
+            name = f"ID {uid}"
 
         text += f"{i}. {name} — {rep}\n"
 
@@ -402,23 +427,34 @@ async def toplist(message: types.Message):
             else:
                 total += count
 
-        stats[uid] = total
+        if total > 0:
+            stats[uid] = total
+
+    if not stats:
+        return await message.answer("Нет данных за этот период.")
 
     top = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
 
-    text = "🏆 Топ активности\n\n"
+    text = f"🏆 Топ активности ({period}) — только участники группы\n\n"
 
     for i, (uid, msgs) in enumerate(top, 1):
 
         try:
-            user = await bot.get_chat(uid)
-            name = user.first_name
+            member = await bot.get_chat_member(message.chat.id, uid)
+            name = get_display_name(member.user)
         except:
-            name = str(uid)
+            name = f"ID {uid}"
 
         text += f"{i}. {name} — {msgs}\n"
 
     await message.answer(text)
+
+
+# ---------------- ФАКТ ENDFIELD ----------------
+@dp.message(Command("fakt_endfield"))
+async def fakt_endfield(message: types.Message):
+    fact = random.choice(endfield_facts)
+    await message.answer(f"🎲 Факт по Arknights: Endfield:\n\n{fact}")
 
 
 # ---------------- UNIVERSAL HANDLER ----------------
