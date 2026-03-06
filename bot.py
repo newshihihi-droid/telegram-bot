@@ -32,7 +32,7 @@ reputation_db = {}
 rep_cooldown = {}
 message_tracker = {}
 
-message_stats = {}
+message_stats = {}  # теперь {chat_id: {user_id: {дата: кол-во}}}
 
 SPAM_LIMIT = 8
 SPAM_TIME = 4
@@ -120,17 +120,35 @@ def load_data():
 
             warnings_db = {int(k): v for k, v in data.get("warnings", {}).items()}
             reputation_db = {int(k): v for k, v in data.get("reputation", {}).items()}
-            message_stats = {int(k): v for k, v in data.get("messages", {}).items()}
+
+            # загружаем статистику по чатам
+            raw = data.get("messages", {})
+            message_stats = {}
+            for chat_str, users in raw.items():
+                try:
+                    chat_id = int(chat_str)
+                    message_stats[chat_id] = {}
+                    for uid_str, days in users.items():
+                        message_stats[chat_id][int(uid_str)] = days
+                except:
+                    continue
 
     except FileNotFoundError:
         warnings_db, reputation_db, message_stats = {}, {}, {}
 
 def save_data():
+    serial_stats = {}
+    for chat_id, users in message_stats.items():
+        chat_str = str(chat_id)
+        serial_stats[chat_str] = {}
+        for uid, days in users.items():
+            serial_stats[chat_str][str(uid)] = days
+
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump({
             "warnings": warnings_db,
             "reputation": reputation_db,
-            "messages": message_stats
+            "messages": serial_stats
         }, f, ensure_ascii=False, indent=2)
 
 def get_display_name(user: types.User) -> str:
@@ -332,21 +350,22 @@ async def userinfo(message: types.Message):
         user = message.from_user
 
     uid = user.id
+    chat_id = message.chat.id
 
     rep = reputation_db.get(uid, 0)
     warns = warnings_db.get(uid, 0)
 
     messages = 0
 
-    if uid in message_stats:
-        messages = sum(message_stats[uid].values())
+    if chat_id in message_stats and uid in message_stats[chat_id]:
+        messages = sum(message_stats[chat_id][uid].values())
 
     text = (
         f"👤 {get_display_name(user)}\n"
         f"🆔 ID: {uid}\n\n"
         f"⭐ Репутация: {rep}\n"
         f"⚠ Варны: {warns}\n"
-        f"💬 Сообщений: {messages}"
+        f"💬 Сообщений в этом чате: {messages}"
     )
 
     await message.answer(text)
@@ -356,14 +375,17 @@ async def userinfo(message: types.Message):
 @dp.message(Command("toprep"))
 async def toprep(message: types.Message):
 
+    chat_id = message.chat.id
+
     if not reputation_db:
         return await message.answer("Нет данных.")
 
-    # Только те, кто писал в группе
-    active_users = [uid for uid in reputation_db if uid in message_stats]
+    active_users = []
+    if chat_id in message_stats:
+        active_users = [uid for uid in reputation_db if uid in message_stats[chat_id]]
 
     if not active_users:
-        return await message.answer("Нет активных пользователей с репутацией.")
+        return await message.answer("Нет активных пользователей с репутацией в этом чате.")
 
     top = sorted(
         [(uid, reputation_db[uid]) for uid in active_users],
@@ -371,12 +393,12 @@ async def toprep(message: types.Message):
         reverse=True
     )[:10]
 
-    text = "🏆 Топ репутации (только участники группы)\n\n"
+    text = "🏆 Топ репутации (только этот чат)\n\n"
 
     for i, (uid, rep) in enumerate(top, 1):
 
         try:
-            member = await bot.get_chat_member(message.chat.id, uid)
+            member = await bot.get_chat_member(chat_id, uid)
             name = get_display_name(member.user)
         except:
             name = f"ID {uid}"
@@ -390,6 +412,7 @@ async def toprep(message: types.Message):
 @dp.message(Command("toplist"))
 async def toplist(message: types.Message):
 
+    chat_id = message.chat.id
     args = message.text.split()
     period = "all"
 
@@ -398,9 +421,12 @@ async def toplist(message: types.Message):
 
     now = datetime.now()
 
+    if chat_id not in message_stats:
+        return await message.answer("В этом чате ещё нет статистики.")
+
     stats = {}
 
-    for uid, days in message_stats.items():
+    for uid, days in message_stats[chat_id].items():
 
         total = 0
 
@@ -431,16 +457,16 @@ async def toplist(message: types.Message):
             stats[uid] = total
 
     if not stats:
-        return await message.answer("Нет данных за этот период.")
+        return await message.answer("Нет данных за этот период в этом чате.")
 
     top = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
 
-    text = f"🏆 Топ активности ({period}) — только участники группы\n\n"
+    text = f"🏆 Топ активности ({period}) — только этот чат\n\n"
 
     for i, (uid, msgs) in enumerate(top, 1):
 
         try:
-            member = await bot.get_chat_member(message.chat.id, uid)
+            member = await bot.get_chat_member(chat_id, uid)
             name = get_display_name(member.user)
         except:
             name = f"ID {uid}"
@@ -461,19 +487,26 @@ async def fakt_endfield(message: types.Message):
 @dp.message()
 async def universal(message: types.Message):
 
+    if not message.from_user or not message.chat:
+        return
+
     user_id = message.from_user.id
+    chat_id = message.chat.id
     text = message.text or ""
 
     # --- MESSAGE TRACKER ---
     today = datetime.now().strftime("%Y-%m-%d")
 
-    if user_id not in message_stats:
-        message_stats[user_id] = {}
+    if chat_id not in message_stats:
+        message_stats[chat_id] = {}
 
-    if today not in message_stats[user_id]:
-        message_stats[user_id][today] = 0
+    if user_id not in message_stats[chat_id]:
+        message_stats[chat_id][user_id] = {}
 
-    message_stats[user_id][today] += 1
+    if today not in message_stats[chat_id][user_id]:
+        message_stats[chat_id][user_id][today] = 0
+
+    message_stats[chat_id][user_id][today] += 1
 
     # --- ANTI-SPAM ---
     if user_id != OWNER_ID:
