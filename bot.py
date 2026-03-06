@@ -154,7 +154,30 @@ endfield_facts = [
     "Yvon делает бомбы Tweety в честь своего агрессивного питомца.",
     "Есть башенный режим как в оригинальном Arknights.",
     "Laevatain — один из первых 6★ Striker-персонажей.",
-    "Endfield Industries — ключевая фракция в сюжете."
+    "Endfield Industries — ключевая фракция в сюжете.",
+    "Talos-II колонизирована терранами 152 года назад через Æthergate.",
+    "Aggeloi — враждебные 'истинные ангелы' с Talos-II.",
+    "Blight — альтернативное измерение, распространяющееся как чума.",
+    "Originium на Talos-II стабилизирует Oripathy, делая её излечимой.",
+    "Perlica — ассистент Endministrator, аналог Amiya из Arknights.",
+    "Warfarin руководит филиалом Rhodes Island на Talos-II.",
+    "Некоторые операторы имеют уникальные анимации двойного рывка.",
+    "Xiranite — новый материал, противодействующий Blight.",
+    "Chen Qianyu — это не та Chen из Arknights, а Chen Qianyu.",
+    "Игра вышла 22 января 2026 года worldwide.",
+    "Gilberta манипулирует гравитацией Originium Arts.",
+    "Auroral Barrier разделяет север и юг Talos-II.",
+    "Landbreakers — варвары, угроза для колонистов.",
+    "Dijiang — корабль Endfield Industries с кастомизацией.",
+    "Музыка Endfield выходит под Metal Scar Radio.",
+    "Endministrator может быть мужским или женским.",
+    "Ætherside — измерение, связанное с Collapsals из Arknights.",
+    "Pogranichnik, Lifeng и Gilberta — уникальные даши.",
+    "Симуляции можно мгновенно завершить с полной наградой.",
+    "Сокровища и секреты везде — охота за сундуками как в AK.",
+    "Tata — Tranquil Automatic Cart, прототип Yvon.",
+    "Northern Gate и Rhodes Island упоминаются в лоре.",
+    "Экономика с торговлей и fluctuating ценами по регионам."
 ]
 
 # ---------------- HELPERS ----------------
