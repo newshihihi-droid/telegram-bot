@@ -1,4 +1,4 @@
-ULTRA_TOXIC_MODE = False
+ULTRA_TOXIC_MODE = False  # устарело, теперь per-chat
 import asyncio
 import re
 import os
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ChatPermissions
+from aiogram.types import ChatPermissions, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
 
@@ -39,6 +39,12 @@ message_stats = {}  # теперь {chat_id: {user_id: {дата: кол-во}}}
 
 SPAM_LIMIT = 8
 SPAM_TIME = 4
+
+# Режим ultra_toxic теперь по группам
+ultra_toxic_mode = {}  # {chat_id: True/False}
+
+# Список доверенных админов бота (добавляются через /addadmin)
+trusted_admins = set()  # множество ID пользователей
 
 rules_text = """
 📜 *Правила чата*  
@@ -382,8 +388,22 @@ endfield_facts = [
 ]
 
 # ---------------- HELPERS ----------------
-def is_admin(message: types.Message):
-    return message.from_user and message.from_user.id in [OWNER_ID]
+def is_owner(message: types.Message):
+    return message.from_user and message.from_user.id == OWNER_ID
+
+async def is_group_admin(message: types.Message) -> bool:
+    if message.chat.type not in ["group", "supergroup"]:
+        return False
+    try:
+        admins = await bot.get_chat_administrators(message.chat.id)
+        admin_ids = [admin.user.id for admin in admins]
+        return message.from_user.id in admin_ids
+    except Exception as e:
+        print(f"Ошибка проверки админа: {e}")
+        return False
+
+def is_bot_admin(message: types.Message) -> bool:
+    return is_owner(message) or message.from_user.id in trusted_admins
 
 def parse_time(time_str):
     match = re.match(r"(\d+)([smhd])", time_str)
@@ -398,13 +418,13 @@ def parse_time(time_str):
     }.get(unit)
 
 def load_data():
-    global warnings_db, reputation_db, message_stats
+    global warnings_db, reputation_db, message_stats, trusted_admins
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             content = f.read().strip()
 
             if not content:
-                warnings_db, reputation_db, message_stats = {}, {}, {}
+                warnings_db, reputation_db, message_stats, trusted_admins = {}, {}, {}, set()
                 return
 
             data = json.loads(content)
@@ -412,7 +432,7 @@ def load_data():
             warnings_db = {int(k): v for k, v in data.get("warnings", {}).items()}
             reputation_db = {int(k): v for k, v in data.get("reputation", {}).items()}
 
-            # загружаем статистику по чатам
+
             raw = data.get("messages", {})
             message_stats = {}
             for chat_str, users in raw.items():
@@ -424,8 +444,10 @@ def load_data():
                 except:
                     continue
 
+            trusted_admins = set(data.get("trusted_admins", []))
+
     except FileNotFoundError:
-        warnings_db, reputation_db, message_stats = {}, {}, {}
+        warnings_db, reputation_db, message_stats, trusted_admins = {}, {}, {}, set()
 
 def save_data():
     serial_stats = {}
@@ -439,7 +461,8 @@ def save_data():
         json.dump({
             "warnings": warnings_db,
             "reputation": reputation_db,
-            "messages": serial_stats
+            "messages": serial_stats,
+            "trusted_admins": list(trusted_admins)
         }, f, ensure_ascii=False, indent=2)
 
 def get_display_name(user: types.User) -> str:
@@ -447,36 +470,39 @@ def get_display_name(user: types.User) -> str:
         return f"@{user.username} ({user.first_name})"
     return user.first_name
 
-# ---------------- MODERATION ----------------
-@dp.message(Command(commands=["mute"]))
-@dp.message(Command(commands=["unmute"]))
-@dp.message(Command(commands=["warn"]))
-@dp.message(Command(commands=["ban"]))
-@dp.message(Command(commands=["permaban"]))
-async def is_group_admin(message: types.Message) -> bool:
-    if message.chat.type not in ["group", "supergroup"]:
-        return False  # не в группе — сразу нет
+# ---------------- ADMIN MANAGEMENT ----------------
+@dp.message(Command("addadmin"))
+async def add_admin(message: types.Message):
+    if not is_owner(message):
+        return await message.answer("Только владелец бота может добавлять доверенных админов.")
 
-    try:
-        admins = await bot.get_chat_administrators(message.chat.id)
-        admin_ids = [admin.user.id for admin in admins]
-        return message.from_user.id in admin_ids
-    except Exception as e:
-        print(f"Ошибка проверки админа: {e}")
-        return False
-# Команда для админа
-@dp.message(Command("toxicon"))
-async def toggle_toxic(message: types.Message):
-    global ULTRA_TOXIC_MODE
-    if is_admin(message):
-        ULTRA_TOXIC_MODE = not ULTRA_TOXIC_MODE
-        await message.answer(f"Ультра-токсик режим: {'ВКЛЮЧЁН' if ULTRA_TOXIC_MODE else 'ВЫКЛЮЧЕН'} 🔥")
-    else:
-        await message.answer("Только админ может включать мясорубку 😏")
+    if not message.reply_to_message:
+        return await message.answer("Ответь на сообщение пользователя, которого хочешь сделать доверенным админом.")
+
+    target_id = message.reply_to_message.from_user.id
+    trusted_admins.add(target_id)
+    save_data()
+    await message.answer(f"@{message.reply_to_message.from_user.username or message.reply_to_message.from_user.first_name} теперь доверенный админ бота! Может использовать админ-команды.")
+
+@dp.message(Command("deladmin"))
+async def del_admin(message: types.Message):
+    if not is_owner(message):
+        return await message.answer("Только владелец бота может убирать доверенных админов.")
+
+    if not message.reply_to_message:
+        return await message.answer("Ответь на сообщение пользователя.")
+
+    target_id = message.reply_to_message.from_user.id
+    trusted_admins.discard(target_id)
+    save_data()
+    await message.answer(f"@{message.reply_to_message.from_user.username or message.reply_to_message.from_user.first_name} больше не доверенный админ.")
+
+# ---------------- MODERATION ----------------
+@dp.message(Command(commands=["mute", "unmute", "warn", "ban", "permaban"]))
 async def moderation(message: types.Message):
 
-    if not is_admin(message) or not message.reply_to_message:
-        return await message.answer("Ответь на сообщение пользователя.")
+    if not (is_bot_admin(message) or await is_group_admin(message)) or not message.reply_to_message:
+        return await message.answer("Ответь на сообщение пользователя или будь админом/доверенным.")
 
     user_id = message.reply_to_message.from_user.id
     cmd = message.text.split()[0].replace("/", "")
@@ -560,14 +586,24 @@ async def moderation(message: types.Message):
         await message.answer("⛔ Перманентный бан")
 
 
+# ---------------- TOGGLE ULTRA TOXIC ----------------
+@dp.message(Command("toxicon"))
+async def toggle_toxic(message: types.Message):
+    chat_id = message.chat.id
 
+    if is_bot_admin(message) or await is_group_admin(message):
+        ultra_toxic_mode[chat_id] = not ultra_toxic_mode.get(chat_id, False)
+        status = "ВКЛЮЧЁН" if ultra_toxic_mode[chat_id] else "ВЫКЛЮЧЕН"
+        await message.answer(f"Ультра-токсик режим в этой группе: {status} 🔥")
+    else:
+        await message.answer("Только админы группы или доверенные админы бота могут включать мясо 😈")
 
 
 # ---------------- KICK RANGE ----------------
 @dp.message(Command("kickrange"))
 async def kickrange(message: types.Message):
 
-    if not is_admin(message):
+    if not (is_bot_admin(message) or await is_group_admin(message)):
         return
 
     members = await bot.get_chat_administrators(message.chat.id)
@@ -593,7 +629,7 @@ async def kickrange(message: types.Message):
 # ---------------- RULES / HELP ----------------
 @dp.message(Command("rules"))
 async def rules_cmd(message: types.Message):
-    await message.answer(rules_text)
+    await message.answer(rules_text, parse_mode="Markdown")
 
 
 @dp.message(Command("help"))
@@ -610,27 +646,18 @@ async def help_cmd(message: types.Message):
 
         "Топы:\n"
         "/toprep — топ репутации\n"
-        "/toplist — топ активности\n"
-        "/toplist day\n"
-        "/toplist week\n"
-        "/toplist month\n"
-        "/toplist year\n\n"
+        "/toplist — топ активности (day/week/month/year)\n\n"
 
         "Интерактив:\n"
-        "обнять\n"
-        "пожать\n"
-        "поцеловать\n"
-        "рука\n"
-        "ударить\n"
-        "накричать\n\n"
+        "Пиши любое действие в ответ на сообщение (обнять, пожать, трахнуть и т.д.)\n"
+        "/интерактив — полный список всех действий с пагинацией\n\n"
 
-        "Модерация:\n"
-        "/mute\n"
-        "/unmute\n"
-        "/warn\n"
-        "/ban\n"
-        "/permaban\n"
-        "/kickrange"
+        "Модерация (для админов группы или доверенных):\n"
+        "/mute /unmute /warn /ban /permaban\n"
+        "/kickrange\n"
+        "/toxicon — включить/выключить ультра-токсик режим\n"
+        "/addadmin @username — добавить доверенного админа бота (только OWNER)\n"
+        "/deladmin @username — убрать доверенного (только OWNER)"
     )
 
 
@@ -797,6 +824,55 @@ async def fakt_endfield(message: types.Message):
     await message.answer(f"🎲 Факт по Arknights: Endfield:\n\n{fact}")
 
 
+# ---------------- INTERACTIVE PAGINATION ----------------
+ITEMS_PER_PAGE = 30
+
+@dp.message(Command(["интерактив", "interaktiv"]))
+async def interaktiv_cmd(message: types.Message):
+    page = 1
+    args = message.text.split()
+    if len(args) > 1:
+        try:
+            page = int(args[1])
+        except:
+            page = 1
+
+    keys = sorted(actions.keys())
+    total_pages = (len(keys) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    start = (page - 1) * ITEMS_PER_PAGE
+    end = min(start + ITEMS_PER_PAGE, len(keys))
+
+    text = f"Интерактивные действия (страница {page}/{total_pages})\n\n"
+    for key in keys[start:end]:
+        text += f"• {key} → {actions[key]}\n"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton("⬅ Назад", callback_data=f"inter_{page-1}"))
+    if page < total_pages:
+        row.append(InlineKeyboardButton("Далее ➡", callback_data=f"inter_{page+1}"))
+    if row:
+        keyboard.inline_keyboard.append(row)
+
+    await message.answer(text, reply_markup=keyboard)
+
+
+@dp.callback_query(lambda c: c.data.startswith("inter_"))
+async def interaktiv_pagination(callback: types.CallbackQuery):
+    page = int(callback.data.split("_")[1])
+    # Повторно вызываем команду с нужной страницей
+    fake_message = types.Message(
+        message_id=callback.message.message_id,
+        chat=callback.message.chat,
+        from_user=callback.from_user,
+        text=f"/интерактив {page}",
+        date=callback.message.date
+    )
+    await interaktiv_cmd(fake_message)
+    await callback.answer()
+
+
 # ---------------- UNIVERSAL HANDLER ----------------
 @dp.message()
 async def universal(message: types.Message):
@@ -866,7 +942,7 @@ async def universal(message: types.Message):
                     f"👎 -1 реп {message.reply_to_message.from_user.first_name}"
                 )
 
-            elif re.match(r"^[+-]\d+$", text) and is_admin(message):
+            elif re.match(r"^[+-]\d+$", text) and is_bot_admin(message):
 
                 val = int(text)
 
@@ -879,13 +955,13 @@ async def universal(message: types.Message):
             save_data()
 
             # --- INTERACTIVE ---
-            if text.lower() in actions and any(word in text.lower() for word in ultra_toxic):
-                if not ULTRA_TOXIC_MODE:
-                   return await message.answer("Это слишком жёстко. Включи /toxicon если админ разрешит.")
-            if text.lower() in actions:
-
+            lower_text = text.lower()
+            if lower_text in actions:
+                if lower_text in ultra_toxic:
+                    if not ultra_toxic_mode.get(chat_id, False):
+                        return await message.answer("Это слишком жёстко. Админ группы может включить /toxicon 😈")
                 await message.answer(
-                    f"{message.from_user.first_name} {actions[text.lower()]} {message.reply_to_message.from_user.first_name}"
+                    f"{get_display_name(message.from_user)} {actions[lower_text]} {get_display_name(message.reply_to_message.from_user)}"
                 )
 
     # --- WELCOME / BYE ---
@@ -893,7 +969,8 @@ async def universal(message: types.Message):
 
         for u in message.new_chat_members:
             await message.answer(
-                f"{random.choice(welcome_list).format(name=u.first_name)}{rules_text}"
+                f"{random.choice(welcome_list).format(name=u.first_name)}{rules_text}",
+                parse_mode="Markdown"
             )
 
     if message.left_chat_member:
