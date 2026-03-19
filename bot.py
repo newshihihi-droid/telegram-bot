@@ -37,11 +37,17 @@ message_tracker = {}
 
 message_stats = {}  # теперь {chat_id: {user_id: {дата: кол-во}}}
 
+# СИСТЕМА ДОВЕРИЯ
+trust_db = {}                  # {str(user_id): {character: percent}}
+trust_gifts_today = {}         # {str(user_id): {character: count_today}}
+trust_last_reset = {}          # {str(user_id): datetime}
+
 SPAM_LIMIT = 8
 SPAM_TIME = 4
 
-# Флаг, чтобы не сохранять файл каждую секунду
+# Флаги
 stats_changed = False
+trust_changed = False
 
 rules_text = """
 📜 *Правила чата*  
@@ -241,37 +247,29 @@ actions = {
     "раздавить яйца молотком": "🔨 раздавил(а) яйца молотком",
     "вырвать сердце": "❤️ вырвал(а) сердце и съел(а) на глазах",
     "распять на заборе": "✝️ распял(а) на заборе колючей проволокой",
-
+    # Дополнительные безобидные
+    "погладить ушки": "🥰 гладит по ушкам",
+    "почесать за ухом": "😺 чешет за ухом",
+    "погладить хвост": "🦊 гладит по хвостику",
+    "потрогать крылья": "🪽 трогает крылышки",
+    "покормить с руки": "🍎 кормит с ладошки",
+    "пощекотать животик": "😂 щекочет животик",
+    "потанцевать вместе": "💃 танцует с тобой",
+    "спеть песенку": "🎤 поёт тебе песенку",
+    # Дополнительные ультра-жестокие
+    "вырвать глаза": "👁️ вырвал(а) глаза пальцами",
+    "размозжить череп молотком": "🔨 размозжил(а) череп молотком",
+    "вырезать сердце живьём": "🔪 вырезал(а) сердце живьём",
+    "оторвать конечности": "🩸 оторвал(а) конечности",
+    "содрать кожу заживо": "🪚 содрал(а) кожу заживо",
+    "разорвать живот": "🩸 разорвал(а) живот и выпустил кишки",
+    "откусить ухо": "😈 откусил(а) ухо зубами",
+    "выдернуть позвоночник": "🦴 выдернул(а) позвоночник",
+    "раздавить горло": "🖐️ раздавил(а) горло рукой",
+    "проткнуть копьём": "🗡️ проткнул(а) копьём насквозь",
 }
 
-ultra_toxic = [
-    
-    # "уебать", "уебать сковородой",
-    # "вскрыть", "вскрыть позвоночник",
-    # "растрелить", "расстрелять очередью",
-    # "расприссировать", "расприссировал",
-    # "кастрировать", "отрезать яйца", "вырвать яйца", "раздавить яйца молотком",
-    # "отрезать хуй",
-    # "вырвать кишки", "распороть живот",
-    # "размозжить череп", "выбить мозги", "разбить череп об стену", "взорвать голову",
-    # "зарезать", "сжечь заживо", "сжечь на костре", "поджечь яйца",
-    # "утопить в сортире", "закопать живьём", "скормить свиньям", "скормить живьём",
-    # "отрубить голову", "отрубить ноги", "отпилить ноги", "распилить бензопилой",
-    # "выколоть глаза", "залить глаза кислотой", "выжечь глаза",
-    # "содрать кожу", "вырвать язык", "отрезать уши", "отрезать пальцы",
-    # "вырвать сердце", "задушить кишками", "задушить проводом",
-    # "взорвать в жопе", "засунуть гранату", "засадить лом в жопу",
-    # "сварить в кислоте", "засунуть в микроволновку", "засунуть в блендер",
-    # "раздавить голову", "раздавить катком", "разорвать на части",
-    # "распять на кресте", "распять на заборе",
-    # "отдать на опыты", "продать на органы", "продать в рабство",
-    # "изнасиловать битой", "сделать минет под дулом",
-    # "выебать", "трахнуть", "оттрахать", "отъебать", "ебать", "засадить", "отшпилить",
-    # "выебать в жопу", "оттрахать в анал", "разъебать жопу", "трахнуть раком", "оттрахать догги",
-    # "кончить в рот", "кончить на лицо", "залить спермой",
-    # "отъебать до слёз", "выебать до крика", "отъебал до потери пульса",
-
-]
+ultra_toxic = list(actions.keys())
 
 welcome_list = [
     "🔥 Добро пожаловать, {name}!",
@@ -347,7 +345,7 @@ bye_list = [
     "🌙 Спокойной ночи, {name}",
 ]
 
-# ---------------- ФАКТЫ ARKNIGHTS: ENDFIELD (все на русском, много новых) ----------------
+# ---------------- ФАКТЫ ARKNIGHTS: ENDFIELD ----------------
 endfield_facts = [
     "Arknights: Endfield происходит на луне Talos-II газового гиганта.",
     "Главный герой — Эндминистратор, пропавший 10 лет назад.",
@@ -394,24 +392,58 @@ endfield_facts = [
     "Некоторые руины содержат записи о Коллапсе с Земли.",
     "Персонажи могут иметь уникальные взаимодействия с окружающей средой.",
     "Есть режим 'Выживание' с ограниченными ресурсами.",
-    "Эндминистратор может выбирать путь: исследователь или воин."
+    "Эндминистратор может выбирать путь: исследователь или воин.",
+    "В игре есть кооперативный режим на 4 человек.",
+    "Операторы имеют разные ранги редкости от 1★ до 6★.",
+    "Есть система прокачки фабрик и добычи ресурсов.",
+    "Байт — это не просто болезнь, а живое измерение.",
+    "Эндфилд — последняя надежда терран после Коллапса.",
+    "В игре есть механика изменения погоды и времени суток.",
+    "Некоторые персонажи имеют альтернативные костюмы из оригинального Arknights.",
+    "Есть секретные пасхалки с отсылками к Terra.",
+    "Можно создавать собственные аванпосты и защищать их от рейдов.",
+    "Операторы могут получать травмы и нуждаться в лечении.",
+    "Есть система морали и лояльности к фракциям.",
+    "В игре есть сюжетные ветки с разными концовками.",
+    "Эндминистратор может потерять доверие союзников при плохих решениях.",
+    "Есть мини-игры внутри фабрик (например, сборка роботов).",
+    "Байт может мутировать существ и создавать новых монстров.",
+    "В игре есть редкие артефакты с древними технологиями.",
+    "Операторы могут развивать отношения между собой.",
 ]
 
-# ---------------- HELPERS ----------------
-def is_admin(message: types.Message):
-    return message.from_user and message.from_user.id in [OWNER_ID]
+# ---------------- СИСТЕМА ДОВЕРИЯ ----------------
+GIFT_EMOJIS = ["🚀", "🧸", "💍", "🌸", "🍬"]
+GIFT_MAX_PER_DAY = 9
+TRUST_PER_GIFT = [33, 33, 33, 20, 20, 20, 10, 10, 10]  # бонус за 1..9 подарок
 
+TRUST_RESPONSES_100 = {
+    "Гилберта": "Гилберта улыбается уголком губ: «Ты... правда так стараешься? Это странно... но мне нравится.»",
+    "Перлика": "Перлика краснеет и шепчет: «Спасибо... я чувствую, что ты мне очень дорог.»",
+    "Yvon": "Yvon хихикает: «Ха-ха! Ты меня засыпал подарками! Теперь ты мой любимый человек!»",
+    "Laevatain": "Laevatain кивает: «Твоя преданность достойна уважения. Я буду рядом.»",
+    "Дефолт": "Персонаж тихо улыбается: «Спасибо... это много значит для меня.»"
+}
+
+TRUST_RESPONSES_200 = {
+    "Гилберта": "Гилберта прижимается: «200%... ты превзошёл всё. Теперь ты мой навсегда.»",
+    "Перлика": "Перлика обнимает крепко: «Я никогда не думала, что кто-то может быть так близко... я твоя.»",
+    "Yvon": "Yvon прыгает: «Ты мой самый-самый! Давай взорвём этот мир вместе, любовь моя!»",
+    "Laevatain": "Laevatain берёт руку: «Ты доказал, что достоин. Мы — одно целое.»",
+    "Дефолт": "Персонаж смотрит в глаза: «Ты достиг максимума... теперь мы связаны навсегда.»"
+}
+
+# ---------------- HELPERS ----------------
 async def is_bot_or_group_admin(message: types.Message) -> bool:
-    # OWNER всегда может
-    if is_admin(message):
+    if message.from_user and message.from_user.id == OWNER_ID:
         return True
     
-    # Админы группы тоже могут
+    
     if message.chat.type in ["group", "supergroup"]:
         try:
             admins = await bot.get_chat_administrators(message.chat.id)
             admin_ids = [admin.user.id for admin in admins]
-            if message.from_user.id in admin_ids:
+            if message.from_user and message.from_user.id in admin_ids:
                 return True
         except Exception as e:
             print(f"Ошибка проверки админов группы: {e}")
@@ -431,14 +463,15 @@ def parse_time(time_str):
     }.get(unit)
 
 def load_data():
-    global warnings_db, reputation_db, message_stats, stats_changed
+    global warnings_db, reputation_db, message_stats, stats_changed, trust_db, trust_gifts_today, trust_last_reset, trust_changed
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             content = f.read().strip()
 
             if not content:
                 warnings_db, reputation_db, message_stats = {}, {}, {}
-                stats_changed = False
+                trust_db, trust_gifts_today, trust_last_reset = {}, {}, {}
+                stats_changed = trust_changed = False
                 return
 
             data = json.loads(content)
@@ -458,16 +491,18 @@ def load_data():
                 except:
                     continue
 
-            stats_changed = False
+            trust_db = data.get("trust", {})
+            trust_gifts_today = data.get("trust_gifts_today", {})
+            trust_last_reset = {int(k): datetime.fromisoformat(v) for k, v in data.get("trust_last_reset", {}).items()}
+            stats_changed = trust_changed = False
 
     except FileNotFoundError:
         warnings_db, reputation_db, message_stats = {}, {}, {}
-        stats_changed = False
+        trust_db, trust_gifts_today, trust_last_reset = {}, {}, {}
+        stats_changed = trust_changed = False
 
 def save_data():
-    global stats_changed
-    if not stats_changed:
-        return  # ничего не изменилось — не пишем файл
+    global stats_changed, trust_changed
 
     serial_stats = {}
     for chat_id, users in message_stats.items():
@@ -480,23 +515,122 @@ def save_data():
         json.dump({
             "warnings": warnings_db,
             "reputation": reputation_db,
-            "messages": serial_stats
+            "messages": serial_stats,
+            "trust": trust_db,
+            "trust_gifts_today": trust_gifts_today,
+            "trust_last_reset": {str(k): v.isoformat() for k, v in trust_last_reset.items()}
         }, f, ensure_ascii=False, indent=2)
 
-    stats_changed = False  # сброс флага
+    stats_changed = trust_changed = False
 
 def get_display_name(user: types.User) -> str:
     if user.username:
         return f"@{user.username} ({user.first_name})"
     return user.first_name
 
-# ---------------- ФОНОВАЯ СОХРАНКА СТАТИСТИКИ ----------------
-async def auto_save_stats():
-    global stats_changed
+# ---------------- ФОНОВАЯ СОХРАНКА ----------------
+async def auto_save():
+    global stats_changed, trust_changed
     while True:
-        await asyncio.sleep(30)  # каждые 30 секунд
-        if stats_changed:
+        await asyncio.sleep(30)
+        if stats_changed or trust_changed:
             save_data()
+
+# ---------------- ПОДАРКИ / ДОВЕРИЕ ----------------
+@dp.message(Command("подарок"))
+async def gift_cmd(message: types.Message):
+    global trust_changed
+    args = message.text.split(maxsplit=2)
+    if len(args) < 3:
+        return await message.answer("Пример: /подарок 🚀🚀 Гилберте")
+
+    gifts_str = args[1]
+    character = args[2].strip()
+
+    gift_count = sum(1 for c in gifts_str if c in GIFT_EMOJIS)
+
+    if gift_count == 0 or gift_count > GIFT_MAX_PER_DAY:
+        return await message.answer(f"Можно от 1 до {GIFT_MAX_PER_DAY} подарков за день (🚀🧸💍🌸🍬)")
+
+    user_id = str(message.from_user.id)
+    today = datetime.now().date().isoformat()
+
+    if user_id not in trust_last_reset or trust_last_reset[user_id].date().isoformat() != today:
+        trust_gifts_today[user_id] = {}
+        trust_last_reset[user_id] = datetime.now()
+
+    if user_id not in trust_gifts_today:
+        trust_gifts_today[user_id] = {}
+
+    if character not in trust_gifts_today[user_id]:
+        trust_gifts_today[user_id][character] = 0
+
+    if trust_gifts_today[user_id][character] + gift_count > GIFT_MAX_PER_DAY:
+        remain = GIFT_MAX_PER_DAY - trust_gifts_today[user_id][character]
+        return await message.answer(f"Сегодня осталось только {remain} подарков для {character}")
+
+    trust_gifts_today[user_id][character] += gift_count
+
+    current = trust_db.get(user_id, {}).get(character, 0)
+    added = 0
+    for i in range(gift_count):
+        idx = min(trust_gifts_today[user_id][character] - i - 1, len(TRUST_PER_GIFT) - 1)
+        added += TRUST_PER_GIFT[idx]
+
+    new_trust = min(current + added, 200)
+    trust_db.setdefault(user_id, {})[character] = new_trust
+    trust_changed = True
+
+    sender = get_display_name(message.from_user)
+    await message.answer(
+        f"🎁 {sender} подарил {gift_count}x {gifts_str} для {character}!\n"
+        f"Доверие {character}: {new_trust}%"
+    )
+
+    if new_trust >= 100 and current < 100:
+        msg = TRUST_RESPONSES_100.get(character, TRUST_RESPONSES_100["Дефолт"])
+        await message.answer(f"💖 {character}: {msg}")
+    if new_trust >= 200 and current < 200:
+        msg = TRUST_RESPONSES_200.get(character, TRUST_RESPONSES_200["Дефолт"])
+        await message.answer(f"💞 {character}: {msg}")
+
+    save_data()
+
+@dp.message(Command("toptrust"))
+async def top_trust(message: types.Message):
+    if not trust_db:
+        return await message.answer("Никто ещё не дарил подарки.")
+
+    trust_avg = {}
+    for uid, chars in trust_db.items():
+        if chars:
+            avg = sum(chars.values()) / len(chars)
+            trust_avg[uid] = round(avg, 1)
+
+    top = sorted(trust_avg.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    text = "🏆 Топ доверия (средний % по персонажам)\n\n"
+    for i, (uid, percent) in enumerate(top, 1):
+        try:
+            user = await bot.get_chat_member(message.chat.id, int(uid))
+            name = get_display_name(user.user)
+        except:
+            name = f"ID {uid}"
+        text += f"{i}. {name} — {percent}%\n"
+
+    await message.answer(text)
+
+@dp.message(Command("mytrust"))
+async def my_trust(message: types.Message):
+    user_id = str(message.from_user.id)
+    if user_id not in trust_db or not trust_db[user_id]:
+        return await message.answer("Ты пока никому не дарил подарки.")
+
+    text = f"Твоё доверие к персонажам:\n"
+    for char, percent in sorted(trust_db[user_id].items(), key=lambda x: x[1], reverse=True):
+        text += f"• {char}: {percent}%\n"
+
+    await message.answer(text)
 
 # ---------------- MODERATION ----------------
 @dp.message(Command(commands=["mute"]))
@@ -647,13 +781,19 @@ async def help_cmd(message: types.Message):
         "/toplist month\n"
         "/toplist year\n\n"
 
+        "Доверие:\n"
+        "/подарок <эмодзи> <имя> — подарить подарки персонажу\n"
+        "/toptrust — топ по среднему доверию\n"
+        "/mytrust — твоё доверие к персонажам\n\n"
+
         "Интерактив:\n"
         "обнять\n"
         "пожать\n"
         "поцеловать\n"
         "рука\n"
         "ударить\n"
-        "накричать\n\n"
+        "накричать\n"
+        "...и много других (включая жёсткие 18+)\n\n"
 
         "Модерация:\n"
         "/mute\n"
@@ -857,7 +997,11 @@ async def universal(message: types.Message):
         message_stats[chat_id][user_id][today] = 0
 
     message_stats[chat_id][user_id][today] += 1
-    stats_changed = True  # флаг — данные изменились, надо сохранить
+    stats_changed = True
+
+    # Принудительное сохранение каждые 5 сообщений
+    if message_stats[chat_id][user_id][today] % 5 == 0:
+        save_data()
 
     # --- ANTI-SPAM ---
     if user_id != OWNER_ID:
@@ -916,13 +1060,12 @@ async def universal(message: types.Message):
             save_data()
 
             # --- INTERACTIVE ---
-            if text.lower() in actions and any(word in text.lower() for word in ultra_toxic):
-                if not ULTRA_TOXIC_MODE:
-                   return await message.answer("Это слишком жёстко. Включи /toxicon если админ разрешит.")
-            if text.lower() in actions:
-
+            lower_text = text.lower()
+            if lower_text in actions:
+                if lower_text in ultra_toxic and not ULTRA_TOXIC_MODE:
+                    return await message.answer("Это слишком жёстко. Включи /toxicon если админ разрешит.")
                 await message.answer(
-                    f"{message.from_user.first_name} {actions[text.lower()]} {message.reply_to_message.from_user.first_name}"
+                    f"{message.from_user.first_name} {actions[lower_text]} {message.reply_to_message.from_user.first_name}"
                 )
 
     # --- WELCOME / BYE ---
@@ -947,8 +1090,8 @@ async def main():
 
     load_data()
 
-    # Запускаем фоновую задачу сохранения статистики каждые 30 сек
-    asyncio.create_task(auto_save_stats())
+    # Запускаем фоновую задачу сохранения
+    asyncio.create_task(auto_save())
 
     await dp.start_polling(bot)
 
