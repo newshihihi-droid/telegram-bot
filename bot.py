@@ -415,7 +415,7 @@ endfield_facts = [
 # ---------------- СИСТЕМА ДОВЕРИЯ ----------------
 GIFT_EMOJIS = ["🚀", "🧸", "💍", "🌸", "🍬"]
 GIFT_MAX_PER_DAY = 9
-TRUST_PER_GIFT = [33, 33, 33, 20, 20, 20, 10, 10, 10]  # бонус за 1..9 подарок
+TRUST_PER_GIFT = [9, 9, 9, 6, 6, 6, 3, 3, 3]  # бонус за 1..9 подарок
 
 TRUST_RESPONSES_100 = {
     "Гилберта": "Гилберта улыбается уголком губ: «Ты... правда так стараешься? Это странно... но мне нравится.»",
@@ -438,7 +438,7 @@ async def is_bot_or_group_admin(message: types.Message) -> bool:
     if message.from_user and message.from_user.id == OWNER_ID:
         return True
     
-    
+
     if message.chat.type in ["group", "supergroup"]:
         try:
             admins = await bot.get_chat_administrators(message.chat.id)
